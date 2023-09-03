@@ -6,9 +6,8 @@ import logging
 from datetime import datetime
 from uuid import uuid4
 
-# import psycopg2
+import psycopg2
 import pandas as pd
-from sqlalchemy import create_engine
 
 from aviationstack.client import AviationStackApiClient
 from aws.s3 import S3
@@ -18,6 +17,7 @@ from aws.secrets import Secrets
 LOAD_CONFIG_BUCKET: str = "LOAD_CONFIG"
 LOAD_CONFIG_FILE: str = "config.toml"
 STAGE_BUCKET_NAME: str = "aviation-stack-stage"
+DATABASE_CONNECTION_SECRET: str = "database-connection"
 
 
 class AviationStackDataLoader:
@@ -26,8 +26,13 @@ class AviationStackDataLoader:
         self.config = {}
         self.s3 = S3()
         self.secrets = Secrets()
-        db = create_engine(os.environ.get("DATABASE_CONNECTION"))
-        self.conn = db.connect()
+        self.conn = None
+
+    def connect_to_postgres(self):
+        logging.info("Gathering database connection credentials...")
+        connection_credentials = self.secrets.get_secret(DATABASE_CONNECTION_SECRET)
+        logging.info("Establishing connection to database...")
+        self.conn = psycopg2.connect(**connection_credentials)
 
     def get_config(self):
         logging.info("Gathering config...")
@@ -73,14 +78,15 @@ class AviationStackDataLoader:
         self.conn.autocommit = True
 
     def run(self):
+        self.connect_to_postgres()
         self.get_config()
         logging.info("Starting jobs...")
         for job in self.config.get("jobs", []):
             logging.info(f"Starting job: {job}...")
             if job.get("icao") is not None:
-                data = self.client.get_all_flights(job.get("icao"))
-                self.stage_data(data)
-                self.upload_data(data, job)
+                for data in self.client.get_all_flights(job.get("icao")):
+                    self.stage_data(data)
+                    self.upload_data(data, job)
         self.conn.close()
 
 

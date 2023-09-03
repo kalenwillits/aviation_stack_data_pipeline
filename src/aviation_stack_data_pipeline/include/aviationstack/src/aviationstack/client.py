@@ -5,7 +5,6 @@ from http import HTTPStatus
 import requests
 
 from .error import Misconfigured
-# from error import Unauthorized
 from .error import InvalidParameterError
 from .error import ApiError
 from .error import MalformedResponse
@@ -31,7 +30,7 @@ class AviationStackApiClient:
     Notes:
     - Free accounts do not support https.
     """
-    def __init__(self, api_key: str = None, https: bool = False, threshold: int = -1):
+    def __init__(self, api_key: str = None, https: bool = False, threshold: int = 100):
         self._https = https
         self._threshold = threshold
         if api_key is None:
@@ -104,7 +103,6 @@ class AviationStackApiClient:
 
     def get_all_flights(self, icao: str) -> list[dict, ...]:
         logging.info(f"Requesting all arriving and departing flights for {icao}.")
-        flights: dict[list[dict, ...], ...] = {}
         for icao_type in (IcaoType.DEPARTURE, IcaoType.ARRIVAL):
             logging.info(f"Requesting all {icao_type} flights...")
             pagination_left: bool = True
@@ -114,12 +112,7 @@ class AviationStackApiClient:
                 if response.status_code == HTTPStatus.OK:
                     payload = response.json()
                     self.validate_payload(payload)
-                    if flights.get(icao_type) is None:
-                        flights[icao_type] = payload["data"]
-                    else:
-                        flights[icao_type].extend(payload["data"])
+                    yield payload["data"]
                     pagination_left = self.payload_has_more_results(payload)
                 else:
                     raise ApiError("Failed to load")
-
-        return [*flights.get(IcaoType.DEPARTURE, []), *flights.get(IcaoType.ARRIVAL, [])]
